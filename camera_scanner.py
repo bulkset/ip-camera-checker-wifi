@@ -6,6 +6,8 @@ import threading
 import queue
 import concurrent.futures
 import csv
+import webbrowser
+from tkinterweb import HtmlFrame
 
 class CameraScanner:
     def __init__(self, root):
@@ -59,23 +61,28 @@ class CameraScanner:
         self.stop_button.pack(side=tk.LEFT, padx=5)
         self.save_button = ttk.Button(button_frame, text="Save Results", command=self.save_results, state="disabled")
         self.save_button.pack(side=tk.LEFT, padx=5)
+        self.open_button = ttk.Button(button_frame, text="Open Camera", command=self.open_camera, state="disabled")
+        self.open_button.pack(side=tk.LEFT, padx=5)
 
-        # Separator
-        ttk.Separator(root, orient='horizontal').pack(fill='x', padx=10)
 
-        # Status and progress
-        status_frame = ttk.Frame(root)
+        # Notebook for tabs
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # Scan tab
+        scan_tab = ttk.Frame(self.notebook)
+        self.notebook.add(scan_tab, text="Scan")
+
+        # Status and progress in scan_tab
+        status_frame = ttk.Frame(scan_tab)
         status_frame.pack(pady=5, padx=10, fill='x')
         self.status_label = ttk.Label(status_frame, text="Ready")
         self.status_label.pack(side=tk.LEFT)
         self.progress = ttk.Progressbar(status_frame, orient="horizontal", mode="determinate")
         self.progress.pack(side=tk.RIGHT, fill='x', expand=True, padx=(10,0))
 
-        # Separator
-        ttk.Separator(root, orient='horizontal').pack(fill='x', padx=10)
-
-        # Results
-        results_frame = ttk.Frame(root)
+        # Results in scan_tab
+        results_frame = ttk.Frame(scan_tab)
         results_frame.pack(fill='both', expand=True, padx=10, pady=10)
         columns = ("IP", "Open Ports")
         self.tree = ttk.Treeview(results_frame, columns=columns, show="headings", height=15)
@@ -112,6 +119,7 @@ class CameraScanner:
         self.scan_button.config(state="disabled")
         self.stop_button.config(state="normal")
         self.save_button.config(state="disabled")
+        self.open_button.config(state="disabled")
         self.tree.delete(*self.tree.get_children())
         self.results = []
         self.status_label.config(text="Starting scan...")
@@ -190,6 +198,48 @@ class CameraScanner:
                 writer.writerows(self.results)
             messagebox.showinfo("Saved", "Results saved successfully.")
 
+    def open_camera(self):
+        selected = self.tree.selection()
+        if selected:
+            values = self.tree.item(selected[0])['values']
+            if len(values) >= 2:
+                ip = values[0]
+                ports_str = values[1]
+                if isinstance(ports_str, str):
+                    open_ports = ports_str.split(', ')
+                else:
+                    open_ports = []
+                # Determine URL based on open ports
+                url = f"http://{ip}"
+                if '8080' in open_ports:
+                    url = f"http://{ip}:8080"
+                elif '8081' in open_ports:
+                    url = f"http://{ip}:8081"
+                # Create new tab for camera
+                camera_tab = ttk.Frame(self.notebook)
+                self.notebook.add(camera_tab, text=f"Camera {ip}")
+
+                # HtmlFrame for embedded view
+                html_frame = HtmlFrame(camera_tab)
+                html_frame.pack(fill='both', expand=True)
+
+                # Buttons for camera tab
+                button_frame = ttk.Frame(camera_tab)
+                button_frame.pack(pady=5)
+                refresh_button = ttk.Button(button_frame, text="Refresh", command=lambda: html_frame.load_url(url))
+                refresh_button.pack(side=tk.LEFT, padx=5)
+                close_button = ttk.Button(button_frame, text="Close", command=lambda: self.notebook.forget(camera_tab))
+                close_button.pack(side=tk.LEFT, padx=5)
+
+                try:
+                    html_frame.load_url(url)
+                except Exception as e:
+                    html_frame.load_html(f"<h1>Error loading camera</h1><p>{str(e)}</p><p>Try opening in browser: <a href='{url}'>{url}</a></p>")
+            else:
+                messagebox.showerror("Error", "Invalid selection data.")
+        else:
+            messagebox.showinfo("No Selection", "Please select a camera from the list.")
+
     def check_queue(self):
         try:
             while True:
@@ -199,6 +249,7 @@ class CameraScanner:
                     self.scan_button.config(state="normal")
                     self.stop_button.config(state="disabled")
                     self.save_button.config(state="normal")
+                    self.open_button.config(state="normal")
                     self.status_label.config(text="Scan complete")
                     messagebox.showinfo("Scan Complete", "Network scan finished.")
                     return
